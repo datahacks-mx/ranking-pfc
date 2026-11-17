@@ -1,0 +1,56 @@
+name: Preparar y publicar PFC Rating
+
+on:
+  workflow_dispatch:
+  # Una vez revisada la primera publicación, puedes activar la programación:
+  # schedule:
+  #   - cron: '15 6 * * *'
+  #     timezone: 'America/Mexico_City'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pfc-pages
+  cancel-in-progress: false
+
+jobs:
+  generar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+      - name: Preparar R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - name: Instalar dependencia de lectura de Excel
+        run: Rscript -e 'install.packages("readxl", repos="https://cloud.r-project.org")'
+      - name: Descargar copia temporal de Google Sheets
+        env:
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+        run: python3 descargar_hoja.py temporal/resultados.xlsx
+      - name: Calcular Glicko-2
+        run: Rscript pfc_glicko2.R temporal/resultados.xlsx temporal/salida
+      - name: Validar y preparar dashboard
+        run: python3 preparar_publicacion.py --datos temporal/salida --plantilla dashboard_template.html --destino public
+      - name: Configurar Pages
+        uses: actions/configure-pages@v5
+      - name: Preparar archivos del sitio
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: public
+
+  publicar:
+    needs: generar
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.despliegue.outputs.page_url }}
+    steps:
+      - name: Publicar dashboard
+        id: despliegue
+        uses: actions/deploy-pages@v4
